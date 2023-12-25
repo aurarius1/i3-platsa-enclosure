@@ -1,0 +1,154 @@
+# AirGradient ONE - Board v9
+# https://www.airgradient.com/open-airgradient/instructions/overview/
+
+# Needs ESPHome 2023.7.0 or later
+
+# Reference for substitutions: https://github.com/ajfriesen/ESPHome-AirGradient/blob/main/air-gradient-pro-diy.yaml
+substitutions:
+  devicename: "test"
+  upper_devicename: "TEST"
+  ag_esphome_config_version: 0.2.1
+
+esphome:
+  name: "${devicename}"
+  friendly_name: "${upper_devicename}"
+  name_add_mac_suffix: true  # Set to false if you don't want part of the MAC address in the name
+
+
+
+esp32:
+  board: esp32dev
+
+# Disable logging
+# https://esphome.io/components/logger.html
+logger:
+  level: VERY_VERBOSE
+# Enable Home Assistant API
+api:
+
+ota:
+
+wifi:
+  # https://esphome.io/components/wifi.html
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  # Defaults to device name with no password
+  ap: {}
+
+# The captive portal is a fallback mechanism for when connecting to the configured WiFi fails.
+# https://esphome.io/components/captive_portal.html
+captive_portal:
+
+# web_server:  # Please note that enabling this component will take up a lot of memory and may decrease stability, especially on ESP8266.
+
+http_request:
+  # Used to support POST request to send data to AirGradient
+  # https://esphome.io/components/http_request.html
+
+switch:
+  # Create a switch for safe_mode in order to flash the device
+  # Solution from this thread:
+  # https://community.home-assistant.io/t/esphome-flashing-over-wifi-does-not-work/357352/1
+  - platform: safe_mode
+    name: "Flash Mode (Safe Mode)"
+    icon: "mdi:cellphone-arrow-down"
+
+i2c:
+  # https://esphome.io/components/i2c.html
+  sda: GPIO21
+  scl: GPIO22
+  #frequency: 400kHz  # 400kHz eliminates warnings about components taking a long time other than SGP40 component: https://github.com/esphome/issues/issues/4717
+
+sensor:
+  # - platform: sht3xd
+  #   # SHT30 https://esphome.io/components/sensor/sht3xd.html
+  #   temperature:
+  #     name: "Temperature"
+  #     id: temp
+  #   humidity:
+  #     name: "Humidity"
+  #     id: humidity
+  #   address: 0x44
+  #   heater_enabled: false  # Only enable if in conditions that may have high condensation
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_dbm
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Uptime"
+    id: device_uptime
+    update_interval: 10s
+  
+  - platform: sht4x
+    # SHT40 https://esphome.io/components/sensor/sht4x.html
+    temperature:
+      name: "Temperature"
+      id: temp
+    humidity:
+      name: "Humidity"
+      id: humidity
+    address: 0x44
+    
+  - platform: scd4x
+    co2:
+      name: "Workshop CO2"
+    temperature:
+      name: "Workshop Temperature"
+    humidity:
+      name: "Workshop Humidity"
+    #compensation:  # Remove this block if no temp/humidity sensor present for compensation
+    #  temperature_source: temp
+    #  humidity_source: humidity
+font:
+    # Font to use on the display
+  - file:
+      type: gfonts
+      family: Poppins
+      weight: light
+    id: poppins_light
+    size: 14
+    glyphs: '!"%()+=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz/µ³'
+  - file:
+      type: gfonts
+      family: Poppins
+      weight: light
+    id: poppins_light_12
+    size: 12
+    glyphs: '!"%()+=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz/µ³'
+  - file: "gfonts://Ubuntu Mono"
+    id: ubuntu
+    size: 22
+    glyphs: '!"%()+=,-_.:°0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz/µ³'
+
+display:
+    # https://esphome.io/components/display/ssd1306.html
+    # Formatting reference: https://www.tutorialspoint.com/c_standard_library/c_function_printf.htm
+  - platform: ssd1306_i2c
+    model: "SH1106 128x64"
+    id: oled_display
+    address: 0x3C
+    # rotation: 180°
+    pages:
+      - id: summary1
+        lambda: |-
+          it.printf(0, 0, id(poppins_light), "HALLO");
+      - id: boot
+        lambda: |-
+          it.printf(0, 0, id(poppins_light), "ID:");
+          it.printf(128, 0, id(poppins_light), TextAlign::TOP_RIGHT, "%s", get_mac_address().c_str());
+          it.printf(0, 21, id(poppins_light), "Config Ver: $ag_esphome_config_version");
+          it.printf(0, 42, id(poppins_light), "$upper_devicename");
+    on_page_change:
+      to: boot
+      then:
+        - if:
+            # Skip the boot page after initial boot
+            condition:
+                lambda: 'return id(device_uptime).state > 30;'
+            then:
+              - display.page.show_next: oled_display
+              - component.update: oled_display
